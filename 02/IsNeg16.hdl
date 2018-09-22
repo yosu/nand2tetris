@@ -1,0 +1,15 @@
+/**
+ * IsNeg16:
+ * out = 1 if in[16] is negative
+ *       0 otherwise
+ */
+
+CHIP IsNeg16 {
+    IN in[16];
+    OUT out;
+
+    PARTS:
+    And (a=in[15], b=true, out=out);
+}
+
+
