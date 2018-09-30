@@ -11,4 +11,40 @@
 // "white" in every pixel;
 // the screen should remain fully clear as long as no key is pressed.
 
-// Put your code here.
+(Loop)
+    // Select color by keyboard
+    @KBD
+    D=M
+    @FillScreen
+    D;JEQ
+    D=-1
+(FillScreen)
+	@color // Set color from D register
+	M=D
+	// Set screen address to @pos
+    @SCREEN
+    D=A
+    @8192
+    D=D+A
+    @pos
+    M=D
+(Fillloop)
+    @pos
+    D=M-1
+    M=D
+
+	@SCREEN
+	D=D-A
+	@Loop
+	D;JLT
+
+    // Set color to D
+    @color
+    D=M
+
+    // Fill color to @pos
+    @pos
+    A=M
+    M=D
+	@Fillloop
+    0;JMP
