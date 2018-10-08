@@ -38,6 +38,53 @@ CHIP CPU {
         addressM[15],    // Address in data memory (of M)
         pc[15];          // address of next instruction
 
+//        instruction[0]: 0=A inst, 1=C inst 
+//        instruction[1]: x
+//        instruction[2]: x
+//        instruction[3]: a
+//        instruction[4]: c
+//        instruction[5]: c
+//        instruction[6]: c
+//        instruction[7]: c
+//        instruction[8]: c
+//        instruction[9]: c
+//        instruction[10]: d: write A
+//        instruction[11]: d: write D
+//        instruction[12]: d: write M
+//        instruction[13]: j:
+//        instruction[14]: j:
+//        instruction[15]: j:
     PARTS:
-    // Put your code here:
+    Decode (instruction=instruction, i=i, value=value, a=a, zx=zx, nx=nx, zy=zy, ny=ny, f=f, no=no, da=da, dd=dd, dm=dm, jl=jl, je=je, jg=jg);
+
+    ALU (x=alux, y=aluy, zx=zx, nx=nx, zy=zy, ny=ny, f=f, no=no, out=aluout, zr=zr, ng=ng);
+    And16 (a=true, b=aluout, out=outM);
+
+    Not (in=i, out=ni);
+    Or (a=ni, b=da, out=loada);
+
+    Mux16 (a=instruction, b=aluout, sel=i, out=ain);
+    ARegister (in=ain, load=loada, out=aout);
+
+    And16 (a=true, b=aout, out[0..14]=addressM);
+
+    Mux16 (a=aout, b=inM, sel=a, out=aluy);
+
+    DRegister (in=aluout, load=dd, out=alux);
+
+    And (a=true, b=dm, out=writeM);
+
+    Not (in=zr, out=nzr);
+    Not (in=ng, out=nng);
+    And (a=nzr, b=nng, out=ps);
+
+    And (a=zr, b=je, out=jmpz);
+    And (a=ng, b=jl, out=jmpl);
+    And (a=ps, b=jg, out=jmpg);
+
+    Or (a=jmpz, b=jmpl, out=jmpzl);
+    Or (a=jmpzl, b=jmpg, out=jmp);
+    Not (in=jmp, out=inc);
+
+    PC (in=aout, load=jmp, inc=inc, reset=reset, out[0..14]=pc);
 }
