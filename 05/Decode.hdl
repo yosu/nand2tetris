@@ -1,0 +1,61 @@
+
+CHIP Decode {
+
+    IN  instruction[16]; // Instruction for execution
+    OUT i,         // i bit (0: A instruction, 1: C instruction)
+        value[15], // value of A instruction
+        a,         // a bit (0: ALU execute A register, 1: ALU execute Memory)
+        zx,        // if zx then x=0
+        nx,        // if nx then x=!x
+        zy,        // if zy then y=0
+        ny,        // if ny then y=!y
+        f,         // if f then then out=x+y else out=x&y
+        no,        // if no then out=!out
+        da,        // dest flag for A register
+        dd,        // dest flag for D register
+        dm,        // dest flag for Memory
+        jg,        // jump if out > 0
+        je,        // jump if out = 0
+        jl;        // jump if out < 0
+
+    PARTS:
+    And (a=true, b=instruction[15], out=i);
+
+    Not (in=instruction[15], out=ni);
+    And (a=ni, b=instruction[0], out=value[0]);
+    And (a=ni, b=instruction[1], out=value[1]);
+    And (a=ni, b=instruction[2], out=value[2]);
+    And (a=ni, b=instruction[3], out=value[3]);
+    And (a=ni, b=instruction[4], out=value[4]);
+    And (a=ni, b=instruction[5], out=value[5]);
+    And (a=ni, b=instruction[6], out=value[6]);
+    And (a=ni, b=instruction[7], out=value[7]);
+    And (a=ni, b=instruction[8], out=value[8]);
+    And (a=ni, b=instruction[9], out=value[9]);
+    And (a=ni, b=instruction[10], out=value[10]);
+    And (a=ni, b=instruction[11], out=value[11]);
+    And (a=ni, b=instruction[12], out=value[12]);
+    And (a=ni, b=instruction[13], out=value[13]);
+    And (a=ni, b=instruction[14], out=value[14]);
+
+    // a
+    And (a=instruction[15], b=instruction[12], out=a);
+
+    // c
+    And (a=instruction[15], b=instruction[11], out=zx); // c1
+    And (a=instruction[15], b=instruction[10], out=nx); // c2
+    And (a=instruction[15], b=instruction[9], out=zy);  // c3
+    And (a=instruction[15], b=instruction[8], out=ny);  // c4
+    And (a=instruction[15], b=instruction[7], out=f);   // c5
+    And (a=instruction[15], b=instruction[6], out=no);  // c6
+
+    // d
+    And (a=instruction[15], b=instruction[5], out=da); // d1
+    And (a=instruction[15], b=instruction[4], out=dd); // d2
+    And (a=instruction[15], b=instruction[3], out=dm); // d3
+
+    // j
+    And (a=instruction[15], b=instruction[2], out=jl); // j1
+    And (a=instruction[15], b=instruction[1], out=je); // j2
+    And (a=instruction[15], b=instruction[0], out=jg); // j3
+}
