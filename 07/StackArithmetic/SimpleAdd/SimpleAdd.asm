@@ -18,6 +18,7 @@ M=D
 // increment stack pointer
 @SP
 M=M+1
+// add
 // decrement stack pointer
 @SP
 M=M-1
@@ -28,8 +29,9 @@ D=M
 @SP
 M=M-1
 A=M
-// add D on the stack
+// calculate on the stack
 M=D+M
 // increment stack pointer
 @SP
 M=M+1
+// -----------------------

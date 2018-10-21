@@ -201,9 +201,32 @@ class Parser:
 
 
 class CodeWriter:
+    # Stack operation
+    #
+    # M: op1
+    # D: op2
+    bin_ops = {
+        'add': 'D+M',
+        'sub': 'M-D',
+        'or': 'D|M',
+        'and': 'D&M'
+    }
+
+    unu_ops = {
+        'neg': '-M',
+        'not': '!M'
+    }
+
+    cmp_ops = {
+        'eq': 'JEQ',
+        'lt': 'JLT',
+        'gt': 'JGT'
+    }
+
     def __init__(self, vm_file):
         self._out = None
         self.set_file_name(vm_file)
+        self.label_counter = {}
 
     def set_file_name(self, vm_file):
         if self._out:
@@ -218,8 +241,11 @@ class CodeWriter:
             self._out = None
 
     def write_arithmetic(self, command):
-        if command == 'add':
-            hack = '''
+        if command in self.bin_ops:
+            op = self.bin_ops[command]
+
+            hack = f'''
+            // {command}
             // decrement stack pointer
             @SP
             M=M-1
@@ -230,13 +256,72 @@ class CodeWriter:
             @SP
             M=M-1
             A=M
-            // add D on the stack
-            M=D+M
+            // calculate on the stack
+            M={op}
             // increment stack pointer
             @SP
             M=M+1
+            // -----------------------
             '''
             self._write_text(hack)
+
+        if command in self.unu_ops:
+            op = self.unu_ops[command]
+
+            hack = f'''
+            // {command}
+            // decrement stack pointer
+            @SP
+            M=M-1
+            A=M
+            // calculate on the stack
+            M={op}
+            // increment stack pointer
+            @SP
+            M=M+1
+            // -----------------------
+            '''
+            self._write_text(hack)
+
+        if command in self.cmp_ops:
+            label = self._get_cmp_label(command)
+            op = self.cmp_ops[command]
+
+            hack = f'''
+            // {command}
+            // decrement stack pointer
+            @SP
+            M=M-1
+            // pop stack to D
+            A=M
+            D=M
+            // decrement stack pointer
+            @SP
+            M=M-1
+            A=M
+            // calculate on the stack
+            D=M-D
+            @{label}True
+            D;{op}
+            // set false to D
+            D=0
+            @{label}End
+            0;JMP
+            ({label}True)
+            // set true to D
+            D=-1
+            ({label}End)
+            // set result to the stack
+            @SP
+            A=M
+            M=D
+            // increment stack pointer
+            @SP
+            M=M+1
+            // -----------------------
+            '''
+            self._write_text(hack)
+
 
     def _write_text(self, text):
         s = textwrap.dedent(text).lstrip()
@@ -266,6 +351,15 @@ class CodeWriter:
 
     def _write_pop(self, segment, index):
         pass
+
+    def _get_count(self, command: str):
+        count = self.label_counter.get(command, 0)
+        self.label_counter[command] = count + 1
+        return self.label_counter[command]
+
+    def _get_cmp_label(self, cmp_command: str) -> str:
+        count = self._get_count(cmp_command)
+        return cmp_command.capitalize() + str(count)
 
 
 def process(vm_file):
