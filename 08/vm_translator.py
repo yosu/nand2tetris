@@ -72,10 +72,12 @@ CommandType._command_type_map = {
 }
 
 
-SEGMENT_NAMES = ['constant', 'local', 'argument']
+SEGMENT_NAMES = ['constant', 'local', 'argument', 'this', 'that', 'pointer']
 SEGMENT_REGISTERS = {
     'local': 'LCL',
-    'argument': 'ARG'
+    'argument': 'ARG',
+    'this': 'THIS',
+    'that': 'THAT',
 }
 
 
@@ -407,7 +409,7 @@ class CodeWriter:
             self._write_pop(segment, index)
 
     def _write_push(self, segment, index):
-        # TODO: Refactor (function mapping)
+        # TODO: tempの実装
         self._write_text(f'''
             // ------------------------------------------------------------------------------
             // push {segment} {index}
@@ -451,7 +453,28 @@ class CodeWriter:
             '''
             self._write_text(hack)
 
+        if segment == 'pointer':
+            hack = f'''
+            # get local address
+            @THIS
+            D=A
+            # move to local[index] address
+            @{index}
+            A=D+A
+            # local[index] to D
+            D=M
+            # push D to stack
+            @SP
+            A=M
+            M=D
+            # increment stack pointer
+            @SP
+            M=M+1
+            '''
+            self._write_text(hack)
+
     def _write_pop(self, segment, index):
+        # TODO: tempの実装
         self._write_text(f'''
             // ------------------------------------------------------------------------------
             // pop {segment} {index}
@@ -486,6 +509,32 @@ class CodeWriter:
             M=D
             '''
             self._write_text(hack)
+
+        if segment == 'pointer':
+            hack = f'''
+            # get local address
+            @THIS
+            D=A
+            # move to local[index] address
+            @{index}
+            D=D+A
+            # store to R13
+            @R13
+            M=D
+            # decrement stack pointer
+            @SP
+            M=M-1
+            # pop stack to D
+            A=M
+            D=M
+            # get local[index] address
+            @R13
+            # D to local[index]
+            A=M
+            M=D
+            '''
+            self._write_text(hack)
+
 
     def _get_count(self, command: str):
         count = self.label_counter.get(command, 0)
