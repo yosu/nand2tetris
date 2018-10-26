@@ -72,12 +72,32 @@ CommandType._command_type_map = {
 }
 
 
-SEGMENT_NAMES = ['constant', 'local', 'argument', 'this', 'that', 'pointer']
-SEGMENT_REGISTERS = {
-    'local': 'LCL',
-    'argument': 'ARG',
-    'this': 'THIS',
-    'that': 'THAT',
+SEGMENTS = {
+    'constant': None,
+    'local': {
+        'label': 'LCL',
+        'register': 'M',
+    },
+    'argument': {
+        'label': 'ARG',
+        'register': 'M',
+    },
+    'this': {
+        'label': 'THIS',
+        'register': 'M',
+    },
+    'that': {
+        'label': 'THAT',
+        'register': 'M',
+    },
+    'pointer': {
+        'label': 'THIS',
+        'register': 'A',
+    },
+    'temp': {
+        'label': 'R5',
+        'register': 'A',
+    },
 }
 
 
@@ -238,11 +258,6 @@ class CodeWriter:
         'gt': 'JGT'
     }
 
-    registers = {
-        'local': 'LCL',
-        'argument': 'ARG',
-    }
-
     def __init__(self, vm_file):
         self._out = None
         self.set_file_name(vm_file)
@@ -392,7 +407,6 @@ class CodeWriter:
 
     def _write_text(self, text):
         s = textwrap.dedent(text).lstrip()
-        # self._out.write(s)
         sio = StringIO(s)
         for line in sio:
             if line.startswith('#'):
@@ -400,7 +414,7 @@ class CodeWriter:
             self._out.write(line)
 
     def write_push_pop(self, command_type, segment, index):
-        if segment not in SEGMENT_NAMES:
+        if segment not in SEGMENTS:
             raise ValueError(f'Invalid segment specified: {segment}')
 
         if command_type == CommandType.C_PUSH:
@@ -409,7 +423,6 @@ class CodeWriter:
             self._write_pop(segment, index)
 
     def _write_push(self, segment, index):
-        # TODO: tempの実装
         self._write_text(f'''
             // ------------------------------------------------------------------------------
             // push {segment} {index}
@@ -431,33 +444,15 @@ class CodeWriter:
             self._write_text(hack)
             return
 
-        if segment in SEGMENT_REGISTERS:
-            register = SEGMENT_REGISTERS[segment]
+        if segment in SEGMENTS:
+            seg = SEGMENTS[segment]
+            label = seg['label']
+            register = seg['register']
 
             hack = f'''
             # get local address
-            @{register}
-            D=M
-            # move to local[index] address
-            @{index}
-            A=D+A
-            # local[index] to D
-            D=M
-            # push D to stack
-            @SP
-            A=M
-            M=D
-            # increment stack pointer
-            @SP
-            M=M+1
-            '''
-            self._write_text(hack)
-
-        if segment == 'pointer':
-            hack = f'''
-            # get local address
-            @THIS
-            D=A
+            @{label}
+            D={register}
             # move to local[index] address
             @{index}
             A=D+A
@@ -474,7 +469,6 @@ class CodeWriter:
             self._write_text(hack)
 
     def _write_pop(self, segment, index):
-        # TODO: tempの実装
         self._write_text(f'''
             // ------------------------------------------------------------------------------
             // pop {segment} {index}
@@ -483,13 +477,15 @@ class CodeWriter:
         if segment == 'constant':
             raise ValueError('`pop constant` is not supported')
 
-        if segment in SEGMENT_REGISTERS:
-            register = SEGMENT_REGISTERS[segment]
+        if segment in SEGMENTS:
+            seg = SEGMENTS[segment]
+            label = seg['label']
+            register = seg['register']
 
             hack = f'''
             # get local address
-            @{register}
-            D=M
+            @{label}
+            D={register}
             # move to local[index] address
             @{index}
             D=D+A
@@ -509,32 +505,6 @@ class CodeWriter:
             M=D
             '''
             self._write_text(hack)
-
-        if segment == 'pointer':
-            hack = f'''
-            # get local address
-            @THIS
-            D=A
-            # move to local[index] address
-            @{index}
-            D=D+A
-            # store to R13
-            @R13
-            M=D
-            # decrement stack pointer
-            @SP
-            M=M-1
-            # pop stack to D
-            A=M
-            D=M
-            # get local[index] address
-            @R13
-            # D to local[index]
-            A=M
-            M=D
-            '''
-            self._write_text(hack)
-
 
     def _get_count(self, command: str):
         count = self.label_counter.get(command, 0)
