@@ -73,7 +73,6 @@ CommandType._command_type_map = {
 
 
 SEGMENTS = {
-    'constant': None,
     'local': {
         'label': 'LCL',
         'register': 'M',
@@ -414,97 +413,114 @@ class CodeWriter:
             self._out.write(line)
 
     def write_push_pop(self, command_type, segment, index):
-        if segment not in SEGMENTS:
-            raise ValueError(f'Invalid segment specified: {segment}')
-
         if command_type == CommandType.C_PUSH:
-            self._write_push(segment, index)
+            self.write_push(segment, index)
         if command_type == CommandType.C_POP:
-            self._write_pop(segment, index)
+            self.write_pop(segment, index)
 
-    def _write_push(self, segment, index):
+    def write_push(self, segment, index):
         self._write_text(f'''
             // ------------------------------------------------------------------------------
             // push {segment} {index}
             // ------------------------------------------------------------------------------
         ''')
+
         if segment == 'constant':
-            hack = f'''
-            # constant to D
-            @{index}
-            D=A
-            # push D to stack
-            @SP
-            A=M
-            M=D
-            # increment stack pointer
-            @SP
-            M=M+1
-            '''
-            self._write_text(hack)
+            self._write_push_constant(index)
             return
 
-        if segment in SEGMENTS:
-            seg = SEGMENTS[segment]
-            label = seg['label']
-            register = seg['register']
+        self._write_push(segment, index)
 
-            hack = f'''
-            # get local address
-            @{label}
-            D={register}
-            # move to local[index] address
-            @{index}
-            A=D+A
-            # local[index] to D
-            D=M
-            # push D to stack
-            @SP
-            A=M
-            M=D
-            # increment stack pointer
-            @SP
-            M=M+1
-            '''
-            self._write_text(hack)
+    def _write_push(self, segment, index):
+        if segment not in SEGMENTS:
+            raise ValueError(f'Invalid segment specified: {segment}')
 
-    def _write_pop(self, segment, index):
+        seg = SEGMENTS[segment]
+        label = seg['label']
+        register = seg['register']
+
+        hack = f'''
+        # get local address
+        @{label}
+        D={register}
+        # move to local[index] address
+        @{index}
+        A=D+A
+        # local[index] to D
+        D=M
+        # push D to stack
+        @SP
+        A=M
+        M=D
+        # increment stack pointer
+        @SP
+        M=M+1
+        '''
+        self._write_text(hack)
+
+    def write_push_constant(self, value):
+        self._write_text(f'''
+            // ------------------------------------------------------------------------------
+            // push constant {value}
+            // ------------------------------------------------------------------------------
+        ''')
+        self._write_push_constant(value)
+
+    def _write_push_constant(self, value):
+        hack = f'''
+        # constant to D
+        @{value}
+        D=A
+        # push D to stack
+        @SP
+        A=M
+        M=D
+        # increment stack pointer
+        @SP
+        M=M+1
+        '''
+        self._write_text(hack)
+
+
+    def write_pop(self, segment, index):
         self._write_text(f'''
             // ------------------------------------------------------------------------------
             // pop {segment} {index}
             // ------------------------------------------------------------------------------
         ''')
-        if segment == 'constant':
-            raise ValueError('`pop constant` is not supported')
+        self._write_pop(segment, index)
 
-        if segment in SEGMENTS:
-            seg = SEGMENTS[segment]
-            label = seg['label']
-            register = seg['register']
+    def _write_pop(self, segment, index):
+        if segment not in SEGMENTS:
+            raise ValueError(f'Invalid segment specified: {segment}')
 
-            hack = f'''
-            # get local address
-            @{label}
-            D={register}
-            # move to local[index] address
-            @{index}
-            D=D+A
-            # store to R13
-            @R13
-            M=D
-            # decrement stack pointer
-            @SP
-            M=M-1
-            # pop stack to D
-            A=M
-            D=M
-            # get local[index] address
-            @R13
-            # D to local[index]
-            A=M
-            M=D
-            '''
-            self._write_text(hack)
+        seg = SEGMENTS[segment]
+        label = seg['label']
+        register = seg['register']
+
+        hack = f'''
+        # get local address
+        @{label}
+        D={register}
+        # move to local[index] address
+        @{index}
+        D=D+A
+        # store to R13
+        @R13
+        M=D
+        # decrement stack pointer
+        @SP
+        M=M-1
+        # pop stack to D
+        A=M
+        D=M
+        # get local[index] address
+        @R13
+        # D to local[index]
+        A=M
+        M=D
+        '''
+        self._write_text(hack)
 
     def _get_count(self, command: str):
         count = self.label_counter.get(command, 0)
