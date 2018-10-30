@@ -193,6 +193,17 @@ class Parser:
 
             return cmd_type, arg1, None
 
+        # function
+        if cmd_type == CommandType.C_FUNCTION:
+            arg1 = self._extract_arg(text)
+            arg2 = self._extract_arg(text)
+
+            return cmd_type, arg1, int(arg2)
+
+        # return
+        if cmd_type == CommandType.C_RETURN:
+            return cmd_type, None, None
+
         raise ValueError(f'Cannot extract args')
 
     def _extract_arg(self, text):
@@ -317,6 +328,99 @@ class CodeWriter:
         '''
 
         self._write_text(hack)
+
+    def write_function(self, label, k):
+        self._validate_label(label)
+
+        hack = f'''
+        // ------------------------------------------------------------------------------
+        // function {label} {k}
+        // ------------------------------------------------------------------------------
+        (Function{label})
+        '''
+        self._write_text(hack)
+
+        for _i in range(k):
+            self._write_push_constant(0)
+
+
+    def write_return(self):
+        hack = f'''
+        // ------------------------------------------------------------------------------
+        // return
+        // ------------------------------------------------------------------------------
+        # FRAME = LCL
+        @LCL
+        D=M
+        @R13
+        M=D
+        # RET = *(FRAME-5)
+        @5
+        A=D-A
+        D=M
+        @R14
+        M=D
+        # *ARG = pop()
+        @SP
+        M=M-1
+        A=M
+        D=M
+        @ARG
+        A=M
+        M=D
+        # SP = ARG+1
+        @ARG
+        D=M+1
+        @SP
+        M=D
+        # THAT = *(FRAME - 1)
+        @R13
+        M=M-1
+        A=M
+        D=M
+        @THAT
+        M=D
+        # THIS = *(FRAME - 2)
+        @R13
+        M=M-1
+        A=M
+        D=M
+        @THIS
+        M=D
+        # ARG = *(FRAME - 3)
+        @R13
+        M=M-1
+        A=M
+        D=M
+        @ARG
+        M=D
+        # LCL = *(FRAME - 4)
+        @R13
+        M=M-1
+        A=M
+        D=M
+        @LCL
+        M=D
+        # goto RET
+        @R14
+        A=M
+        0;JMP
+        '''
+
+        self._write_text(hack)
+        pass
+
+    def write_call(self, label, n):
+        # push return-address
+        # push LCL
+        # push ARG
+        # push THIS
+        # push THAT
+        # ARG = SP-n-5
+        # LCL = SP
+        # goto f
+        # (return-address)
+        pass
 
     def _validate_label(self, label):
         if re.search(r'[^A-Za-z0-9:._]', label):
@@ -560,6 +664,11 @@ def convert(parser, writer):
         if parser.command_type == CommandType.C_IF:
             writer.write_if(parser.arg1)
 
+        if parser.command_type == CommandType.C_FUNCTION:
+            writer.write_function(parser.arg1, parser.arg2)
+
+        if parser.command_type == CommandType.C_RETURN:
+            writer.write_return()
 
 
 def main():
