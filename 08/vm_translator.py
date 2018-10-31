@@ -4,7 +4,7 @@ import sys
 import textwrap
 from enum import Enum, auto
 from io import StringIO
-from pathlib import Path, PurePath
+from pathlib import Path
 
 
 class Command(Enum):
@@ -629,31 +629,38 @@ class CodeWriter:
 
 def process(path: Path):
     if path.is_file():
-        out_path = path.with_suffix('.asm')
-
-        with out_path.open('w') as ostream:
-            writer = CodeWriter(ostream)
-
-            with path.open() as istream:
-                parser = Parser(istream)
-
-                writer.set_file_name(path)
-                convert(parser, writer)
-
+        _process_file(path)
     elif path.is_dir():
-        out_path = (path / path.stem).with_suffix('.asm')
-
-        with out_path.open('w') as ostream:
-            writer = CodeWriter(ostream)
-
-            for vm_path in path.glob('*.vm'):
-                with vm_path.open() as istream:
-                    parser = Parser(istream)
-
-                    writer.set_file_name(vm_path)
-                    convert(parser, writer)
+        _process_dir(path)
     else:
         raise ValueError(f'Invalid file name: {path}')
+
+
+def _process_file(path: Path):
+    out_path = path.with_suffix('.asm')
+
+    with out_path.open('w') as ostream:
+        writer = CodeWriter(ostream)
+
+        with path.open() as istream:
+            parser = Parser(istream)
+
+            writer.set_file_name(path)
+            convert(parser, writer)
+
+
+def _process_dir(path: Path):
+    out_path = (path / path.stem).with_suffix('.asm')
+
+    with out_path.open('w') as ostream:
+        writer = CodeWriter(ostream)
+
+        for vm_path in path.glob('*.vm'):
+            with vm_path.open() as istream:
+                parser = Parser(istream)
+
+                writer.set_file_name(vm_path)
+                convert(parser, writer)
 
 
 def convert(parser, writer):
