@@ -628,7 +628,6 @@ class CodeWriter:
 
 
 def process(path: Path):
-
     if path.is_file():
         out_path = path.with_suffix('.asm')
 
@@ -642,9 +641,17 @@ def process(path: Path):
                 convert(parser, writer)
 
     elif path.is_dir():
-        out_file = (path / path.stem).with_suffix('.asm')
-        for filename in path.glob('*.vm'):
-            print(f'Input: {filename}')
+        out_path = (path / path.stem).with_suffix('.asm')
+
+        with out_path.open('w') as ostream:
+            writer = CodeWriter(ostream)
+
+            for vm_path in path.glob('*.vm'):
+                with vm_path.open() as istream:
+                    parser = Parser(istream)
+
+                    writer.set_file_name(vm_path)
+                    convert(parser, writer)
     else:
         raise ValueError(f'Invalid file name: {path}')
 
