@@ -4,7 +4,7 @@ import sys
 import textwrap
 from enum import Enum, auto
 from io import StringIO
-from pathlib import PurePath
+from pathlib import Path, PurePath
 
 
 class Command(Enum):
@@ -268,22 +268,13 @@ class CodeWriter:
         'gt': 'JGT'
     }
 
-    def __init__(self, vm_file):
-        self._out = None
-        self.set_file_name(vm_file)
+    def __init__(self, ostream):
+        self.ostream = ostream
         self.label_counter = {}
+        self.file_name = None
 
     def set_file_name(self, vm_file):
-        if self._out:
-            self.close()
-
-        asm_file = PurePath(vm_file).with_suffix('.asm')
-        self._out = open(asm_file, 'w')
-
-    def close(self):
-        if self._out:
-            close(self._out)
-            self._out = None
+        self.file_name = vm_file
 
     def write_label(self, label):
         self._validate_label(label)
@@ -514,7 +505,7 @@ class CodeWriter:
         for line in sio:
             if line.startswith('#'):
                 continue
-            self._out.write(line)
+            self.ostream.write(line)
 
     def write_push_pop(self, command_type, segment, index):
         if command_type == CommandType.C_PUSH:
@@ -636,12 +627,26 @@ class CodeWriter:
         return cmp_command.capitalize() + str(count)
 
 
-def process(vm_file):
-    with open(vm_file, "r") as inh:
-        parser = Parser(inh)
+def process(path: Path):
 
-        writer = CodeWriter(vm_file)
-        convert(parser, writer)
+    if path.is_file():
+        out_path = path.with_suffix('.asm')
+
+        with out_path.open('w') as ostream:
+            writer = CodeWriter(ostream)
+
+            with path.open() as istream:
+                parser = Parser(istream)
+
+                writer.set_file_name(path)
+                convert(parser, writer)
+
+    elif path.is_dir():
+        out_file = (path / path.stem).with_suffix('.asm')
+        for filename in path.glob('*.vm'):
+            print(f'Input: {filename}')
+    else:
+        raise ValueError(f'Invalid file name: {path}')
 
 
 def convert(parser, writer):
@@ -676,9 +681,8 @@ def main():
         print("Usage: vm_translator.py source")
         sys.exit(1)
 
-    # TODO: ディレクトリのときはファイルを列挙して処理する
-    vm_file = sys.argv[1]
-    process(vm_file)
+    path = Path(sys.argv[1])
+    process(path)
 
 
 if __name__ == '__main__':
