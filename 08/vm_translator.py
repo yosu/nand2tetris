@@ -204,6 +204,13 @@ class Parser:
         if cmd_type == CommandType.C_RETURN:
             return cmd_type, None, None
 
+        # call
+        if cmd_type == CommandType.C_CALL:
+            arg1 = self._extract_arg(text)
+            arg2 = self._extract_arg(text)
+
+            return cmd_type, arg1, int(arg2)
+
         raise ValueError(f'Cannot extract args')
 
     def _extract_arg(self, text):
@@ -272,9 +279,15 @@ class CodeWriter:
         self.ostream = ostream
         self.label_counter = {}
         self.file_name = None
+        self.return_count = 0
 
     def set_file_name(self, vm_file):
-        self.file_name = vm_file
+        self.file_name = Path(vm_file).stem
+        self.return_count = 0
+
+    def _generate_return_label(self):
+        self.return_count += 1
+        return f"Return.{self.file_name}.{self.return_count}"
 
     def write_label(self, label):
         self._validate_label(label)
@@ -399,19 +412,76 @@ class CodeWriter:
         '''
 
         self._write_text(hack)
-        pass
 
     def write_call(self, label, n):
+        return_label = self._generate_return_label()
+
+        hack = f'''
+        // ------------------------------------------------------------------------------
+        // call {label} {n}
+        // ------------------------------------------------------------------------------
         # push return-address
+        @{return_label}
+        D=A
+        @SP
+        A=M
+        M=D
+        @SP
+        M=M+1
         # push LCL
+        @LCL
+        D=M
+        @SP
+        A=M
+        M=D
+        @SP
+        M=M+1
         # push ARG
+        @ARG
+        D=M
+        @SP
+        A=M
+        M=D
+        @SP
+        M=M+1
         # push THIS
+        @THIS
+        D=M
+        @SP
+        A=M
+        M=D
+        @SP
+        M=M+1
         # push THAT
+        @THAT
+        D=M
+        @SP
+        A=M
+        M=D
+        @SP
+        M=M+1
         # ARG = SP-n-5
+        @{n}
+        D=A
+        @5
+        D=D+A
+        @SP
+        D=A-D
+        @ARG
+        M=D
         # LCL = SP
+        @SP
+        D=M
+        @LCL
+        M=D
         # goto f
+        @{label}
+        0;JMP
         # (return-address)
-        pass
+        ({return_label})
+        '''
+
+        self._write_text(hack)
 
     def _validate_label(self, label):
         if re.search(r'[^A-Za-z0-9:._]', label):
@@ -688,6 +758,9 @@ def convert(parser, writer):
 
         if parser.command_type == CommandType.C_RETURN:
             writer.write_return()
+
+        if parser.command_type == CommandType.C_CALL:
+            writer.write_call(parser.arg1, parser.arg2)
 
 
 def main():
