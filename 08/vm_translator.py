@@ -253,6 +253,7 @@ class Parser:
 
 
 class CodeWriter:
+    FUNCTION_LABEL_PREFIX = 'Function'
     # Stack operation
     #
     # M: op1
@@ -288,6 +289,17 @@ class CodeWriter:
     def _generate_return_label(self):
         self.return_count += 1
         return f"Return.{self.file_name}.{self.return_count}"
+
+    def write_init(self):
+        hack = f'''
+        // ------------------------------------------------------------------------------
+        //init
+        // ------------------------------------------------------------------------------
+        # Call Sys.init
+        @{self._function_label('Sys.init')}
+        0;JMP
+        '''
+        self._write_text(hack)
 
     def write_label(self, label):
         self._validate_label(label)
@@ -340,13 +352,16 @@ class CodeWriter:
         // ------------------------------------------------------------------------------
         // function {label} {k}
         // ------------------------------------------------------------------------------
-        (Function{label})
+        ({self._function_label(label)})
         '''
         self._write_text(hack)
 
         for _i in range(k):
             self._write_push_constant(0)
 
+    @classmethod
+    def _function_label(cls, label):
+        return f'{cls.FUNCTION_LABEL_PREFIX}.{label}'
 
     def write_return(self):
         hack = f'''
@@ -415,6 +430,7 @@ class CodeWriter:
 
     def write_call(self, label, n):
         return_label = self._generate_return_label()
+        function_label = self._function_label(label)
 
         hack = f'''
         // ------------------------------------------------------------------------------
@@ -466,7 +482,7 @@ class CodeWriter:
         @5
         D=D+A
         @SP
-        D=A-D
+        D=M-D
         @ARG
         M=D
         # LCL = SP
@@ -475,7 +491,7 @@ class CodeWriter:
         @LCL
         M=D
         # goto f
-        @{label}
+        @{function_label}
         0;JMP
         # (return-address)
         ({return_label})
@@ -711,6 +727,7 @@ def _process_file(path: Path):
 
     with out_path.open('w') as ostream:
         writer = CodeWriter(ostream)
+        writer.write_init()
 
         with path.open() as istream:
             parser = Parser(istream)
@@ -724,6 +741,8 @@ def _process_dir(path: Path):
 
     with out_path.open('w') as ostream:
         writer = CodeWriter(ostream)
+        writer.set_file_name(path)
+        writer.write_init()
 
         for vm_path in path.glob('*.vm'):
             with vm_path.open() as istream:
