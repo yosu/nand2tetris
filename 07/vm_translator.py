@@ -1,8 +1,10 @@
 #!/usr/bin/env python
+import re
 import sys
-from pathlib import PurePath
-from enum import Enum, auto
 import textwrap
+from enum import Enum, auto
+from io import StringIO
+from pathlib import Path
 
 
 class Command(Enum):
@@ -67,6 +69,34 @@ CommandType._command_type_map = {
     Command.FUNCTION: CommandType.C_FUNCTION,
     Command.CALL:     CommandType.C_CALL,
     Command.RETURN:   CommandType.C_RETURN
+}
+
+
+SEGMENTS = {
+    'local': {
+        'label': 'LCL',
+        'register': 'M',
+    },
+    'argument': {
+        'label': 'ARG',
+        'register': 'M',
+    },
+    'this': {
+        'label': 'THIS',
+        'register': 'M',
+    },
+    'that': {
+        'label': 'THAT',
+        'register': 'M',
+    },
+    'pointer': {
+        'label': 'THIS',
+        'register': 'A',
+    },
+    'temp': {
+        'label': 'R5',
+        'register': 'A',
+    },
 }
 
 
@@ -150,11 +180,36 @@ class Parser:
             return cmd_type, cmd.value, None
 
         # binary args
+        # TODO: Refactor
         if cmd_type == CommandType.C_PUSH or cmd_type == CommandType.C_POP:
             arg1 = self._extract_arg(text)
             arg2 = self._extract_arg(text)
 
             return cmd_type, arg1, arg2
+
+        # program flow
+        if cmd_type in [CommandType.C_LABEL, CommandType.C_GOTO, CommandType.C_IF] :
+            arg1 = self._extract_arg(text)
+
+            return cmd_type, arg1, None
+
+        # function
+        if cmd_type == CommandType.C_FUNCTION:
+            arg1 = self._extract_arg(text)
+            arg2 = self._extract_arg(text)
+
+            return cmd_type, arg1, int(arg2)
+
+        # return
+        if cmd_type == CommandType.C_RETURN:
+            return cmd_type, None, None
+
+        # call
+        if cmd_type == CommandType.C_CALL:
+            arg1 = self._extract_arg(text)
+            arg2 = self._extract_arg(text)
+
+            return cmd_type, arg1, int(arg2)
 
         raise ValueError(f'Cannot extract args')
 
@@ -168,9 +223,6 @@ class Parser:
         while not text.end() and not text.current.isspace():
             arg += text.current
             text.forward()
-
-        if not arg.isalnum():
-            raise ValueError(f'Invalid argument {arg}')
 
         return arg
 
@@ -201,6 +253,7 @@ class Parser:
 
 
 class CodeWriter:
+    FUNCTION_LABEL_PREFIX = 'Function'
     # Stack operation
     #
     # M: op1
@@ -223,45 +276,259 @@ class CodeWriter:
         'gt': 'JGT'
     }
 
-    def __init__(self, vm_file):
-        self._out = None
-        self.set_file_name(vm_file)
+    def __init__(self, ostream):
+        self.ostream = ostream
         self.label_counter = {}
+        self.file_name = None
+        self.return_count = 0
 
     def set_file_name(self, vm_file):
-        if self._out:
-            self.close()
+        self.file_name = Path(vm_file).stem
+        self.return_count = 0
 
-        asm_file = PurePath(vm_file).with_suffix('.asm')
-        self._out = open(asm_file, 'w')
+    def _generate_return_label(self):
+        self.return_count += 1
+        return f"Return.{self.file_name}.{self.return_count}"
 
-    def close(self):
-        if self._out:
-            close(self._out)
-            self._out = None
+    def write_init(self):
+        return None
+        hack = f'''
+        // ------------------------------------------------------------------------------
+        //init
+        // ------------------------------------------------------------------------------
+        # Call Sys.init
+        @{self._function_label('Sys.init')}
+        0;JMP
+        '''
+        self._write_text(hack)
+
+    def write_label(self, label):
+        self._validate_label(label)
+
+        hack = f'''
+        // ------------------------------------------------------------------------------
+        // label {label}
+        // ------------------------------------------------------------------------------
+        (Label{label})
+        '''
+
+        self._write_text(hack)
+
+    def write_goto(self, label):
+        self._validate_label(label)
+
+        hack = f'''
+        // ------------------------------------------------------------------------------
+        // goto {label}
+        // ------------------------------------------------------------------------------
+        @Label{label}
+        0;JMP
+        '''
+
+        self._write_text(hack)
+
+    def write_if(self, label):
+        self._validate_label(label)
+
+        hack = f'''
+        // ------------------------------------------------------------------------------
+        // if-goto {label}
+        // ------------------------------------------------------------------------------
+        # decrement stack pointer
+        @SP
+        M=M-1
+        # pop stack to D
+        A=M
+        D=M
+        @Label{label}
+        D;JNE
+        '''
+
+        self._write_text(hack)
+
+    def write_function(self, label, k):
+        self._validate_label(label)
+
+        hack = f'''
+        // ------------------------------------------------------------------------------
+        // function {label} {k}
+        // ------------------------------------------------------------------------------
+        ({self._function_label(label)})
+        '''
+        self._write_text(hack)
+
+        for _i in range(k):
+            self._write_push_constant(0)
+
+    @classmethod
+    def _function_label(cls, label):
+        return f'{cls.FUNCTION_LABEL_PREFIX}.{label}'
+
+    def write_return(self):
+        hack = f'''
+        // ------------------------------------------------------------------------------
+        // return
+        // ------------------------------------------------------------------------------
+        # FRAME = LCL
+        @LCL
+        D=M
+        @R13
+        M=D
+        # RET = *(FRAME-5)
+        @5
+        A=D-A
+        D=M
+        @R14
+        M=D
+        # *ARG = pop()
+        @SP
+        M=M-1
+        A=M
+        D=M
+        @ARG
+        A=M
+        M=D
+        # SP = ARG+1
+        @ARG
+        D=M+1
+        @SP
+        M=D
+        # THAT = *(FRAME - 1)
+        @R13
+        M=M-1
+        A=M
+        D=M
+        @THAT
+        M=D
+        # THIS = *(FRAME - 2)
+        @R13
+        M=M-1
+        A=M
+        D=M
+        @THIS
+        M=D
+        # ARG = *(FRAME - 3)
+        @R13
+        M=M-1
+        A=M
+        D=M
+        @ARG
+        M=D
+        # LCL = *(FRAME - 4)
+        @R13
+        M=M-1
+        A=M
+        D=M
+        @LCL
+        M=D
+        # goto RET
+        @R14
+        A=M
+        0;JMP
+        '''
+
+        self._write_text(hack)
+
+    def write_call(self, label, n):
+        return_label = self._generate_return_label()
+        function_label = self._function_label(label)
+
+        hack = f'''
+        // ------------------------------------------------------------------------------
+        // call {label} {n}
+        // ------------------------------------------------------------------------------
+        # push return-address
+        @{return_label}
+        D=A
+        @SP
+        A=M
+        M=D
+        @SP
+        M=M+1
+        # push LCL
+        @LCL
+        D=M
+        @SP
+        A=M
+        M=D
+        @SP
+        M=M+1
+        # push ARG
+        @ARG
+        D=M
+        @SP
+        A=M
+        M=D
+        @SP
+        M=M+1
+        # push THIS
+        @THIS
+        D=M
+        @SP
+        A=M
+        M=D
+        @SP
+        M=M+1
+        # push THAT
+        @THAT
+        D=M
+        @SP
+        A=M
+        M=D
+        @SP
+        M=M+1
+        # ARG = SP-n-5
+        @{n}
+        D=A
+        @5
+        D=D+A
+        @SP
+        D=M-D
+        @ARG
+        M=D
+        # LCL = SP
+        @SP
+        D=M
+        @LCL
+        M=D
+        # goto f
+        @{function_label}
+        0;JMP
+        # (return-address)
+        ({return_label})
+        '''
+
+        self._write_text(hack)
+
+    def _validate_label(self, label):
+        if re.search(r'[^A-Za-z0-9:._]', label):
+            raise ValueError(f'Invalid label: {label}')
 
     def write_arithmetic(self, command):
+        self._write_text(f'''
+            // ------------------------------------------------------------------------------
+            // {command}
+            // ------------------------------------------------------------------------------
+        ''')
         if command in self.bin_ops:
             op = self.bin_ops[command]
 
             hack = f'''
-            // {command}
-            // decrement stack pointer
+            # decrement stack pointer
             @SP
             M=M-1
-            // pop stack to D
+            # pop stack to D
             A=M
             D=M
-            // decrement stack pointer
+            # decrement stack pointer
             @SP
             M=M-1
             A=M
-            // calculate on the stack
+            # calculate on the stack
             M={op}
-            // increment stack pointer
+            # increment stack pointer
             @SP
             M=M+1
-            // -----------------------
             '''
             self._write_text(hack)
 
@@ -269,17 +536,15 @@ class CodeWriter:
             op = self.unu_ops[command]
 
             hack = f'''
-            // {command}
-            // decrement stack pointer
+            # decrement stack pointer
             @SP
             M=M-1
             A=M
-            // calculate on the stack
+            # calculate on the stack
             M={op}
-            // increment stack pointer
+            # increment stack pointer
             @SP
             M=M+1
-            // -----------------------
             '''
             self._write_text(hack)
 
@@ -288,69 +553,204 @@ class CodeWriter:
             op = self.cmp_ops[command]
 
             hack = f'''
-            // {command}
-            // decrement stack pointer
+            # decrement stack pointer
             @SP
             M=M-1
-            // pop stack to D
+            # pop stack to D
             A=M
             D=M
-            // decrement stack pointer
+            # decrement stack pointer
             @SP
             M=M-1
             A=M
-            // calculate on the stack
+            # calculate on the stack
             D=M-D
             @{label}True
             D;{op}
-            // set false to D
+            # set false to D
             D=0
             @{label}End
             0;JMP
             ({label}True)
-            // set true to D
+            # set true to D
             D=-1
             ({label}End)
-            // set result to the stack
+            # set result to the stack
             @SP
             A=M
             M=D
-            // increment stack pointer
+            # increment stack pointer
             @SP
             M=M+1
-            // -----------------------
             '''
             self._write_text(hack)
 
 
     def _write_text(self, text):
         s = textwrap.dedent(text).lstrip()
-        self._out.write(s)
+        sio = StringIO(s)
+        for line in sio:
+            if line.startswith('#'):
+                continue
+            self.ostream.write(line)
 
     def write_push_pop(self, command_type, segment, index):
         if command_type == CommandType.C_PUSH:
-            self._write_push(segment, index)
+            self.write_push(segment, index)
         if command_type == CommandType.C_POP:
-            self._write_pop(segment, index)
+            self.write_pop(segment, index)
+
+    def write_push(self, segment, index):
+        self._write_text(f'''
+            // ------------------------------------------------------------------------------
+            // push {segment} {index}
+            // ------------------------------------------------------------------------------
+        ''')
+
+        if segment == 'constant':
+            self._write_push_constant(index)
+            return
+
+        if segment == 'static':
+            self._write_push_static(index)
+            return
+
+        self._write_push(segment, index)
 
     def _write_push(self, segment, index):
-        if segment == 'constant':
-            hack = f'''
-            // constant to D
-            @{index}
-            D=A
-            // push D to stack
-            @SP
-            A=M
-            M=D
-            // increment stack pointer
-            @SP
-            M=M+1
-            '''
-            self._write_text(hack)
+        if segment not in SEGMENTS:
+            raise ValueError(f'Invalid segment specified: {segment}')
+
+        seg = SEGMENTS[segment]
+        label = seg['label']
+        register = seg['register']
+
+        hack = f'''
+        # get local address
+        @{label}
+        D={register}
+        # move to local[index] address
+        @{index}
+        A=D+A
+        # local[index] to D
+        D=M
+        # push D to stack
+        @SP
+        A=M
+        M=D
+        # increment stack pointer
+        @SP
+        M=M+1
+        '''
+        self._write_text(hack)
+
+    def write_push_constant(self, value):
+        self._write_text(f'''
+            // ------------------------------------------------------------------------------
+            // push constant {value}
+            // ------------------------------------------------------------------------------
+        ''')
+        self._write_push_constant(value)
+
+    def _write_push_constant(self, value):
+        hack = f'''
+        # constant to D
+        @{value}
+        D=A
+        # push D to stack
+        @SP
+        A=M
+        M=D
+        # increment stack pointer
+        @SP
+        M=M+1
+        '''
+        self._write_text(hack)
+
+    def _write_push_static(self, index):
+        hack = f'''
+        # get static label address
+        @{self.file_name}.{index}
+        # get value from static address to D
+        D=M
+        # push D to stack
+        @SP
+        A=M
+        M=D
+        # increment stack pointer
+        @SP
+        M=M+1
+        '''
+
+        self._write_text(hack)
+
+    def write_pop(self, segment, index):
+        self._write_text(f'''
+            // ------------------------------------------------------------------------------
+            // pop {segment} {index}
+            // ------------------------------------------------------------------------------
+        ''')
+        if segment == 'static':
+            self._write_pop_static(index)
+            return
+
+        self._write_pop(segment, index)
 
     def _write_pop(self, segment, index):
-        pass
+        if segment not in SEGMENTS:
+            raise ValueError(f'Invalid segment specified: {segment}')
+
+        seg = SEGMENTS[segment]
+        label = seg['label']
+        register = seg['register']
+
+        hack = f'''
+        # get local address
+        @{label}
+        D={register}
+        # move to local[index] address
+        @{index}
+        D=D+A
+        # store to R13
+        @R13
+        M=D
+        # decrement stack pointer
+        @SP
+        M=M-1
+        # pop stack to D
+        A=M
+        D=M
+        # get local[index] address
+        @R13
+        # D to local[index]
+        A=M
+        M=D
+        '''
+        self._write_text(hack)
+
+    def _write_pop_static(self, index):
+        hack = f'''
+        # allocate static address
+        ({self.file_name}.{index})
+        # get static address
+        @{self.file_name}.{index}
+        D=A
+        # store to R13
+        @R13
+        M=D
+        # decrement stack pointer
+        @SP
+        M=M-1
+        # pop stack to D
+        A=M
+        D=M
+        # get static address
+        @R13
+        A=M
+        # store D to static address
+        M=D
+        '''
+        self._write_text(hack)
 
     def _get_count(self, command: str):
         count = self.label_counter.get(command, 0)
@@ -362,12 +762,43 @@ class CodeWriter:
         return cmp_command.capitalize() + str(count)
 
 
-def process(vm_file):
-    with open(vm_file, "r") as inh:
-        parser = Parser(inh)
+def process(path: Path):
+    if path.is_file():
+        _process_file(path)
+    elif path.is_dir():
+        _process_dir(path)
+    else:
+        raise ValueError(f'Invalid file name: {path}')
 
-        writer = CodeWriter(vm_file)
-        convert(parser, writer)
+
+def _process_file(path: Path):
+    out_path = path.with_suffix('.asm')
+
+    with out_path.open('w') as ostream:
+        writer = CodeWriter(ostream)
+        writer.write_init()
+
+        with path.open() as istream:
+            parser = Parser(istream)
+
+            writer.set_file_name(path)
+            convert(parser, writer)
+
+
+def _process_dir(path: Path):
+    out_path = (path / path.stem).with_suffix('.asm')
+
+    with out_path.open('w') as ostream:
+        writer = CodeWriter(ostream)
+        writer.set_file_name(path)
+        writer.write_init()
+
+        for vm_path in path.glob('*.vm'):
+            with vm_path.open() as istream:
+                parser = Parser(istream)
+
+                writer.set_file_name(vm_path)
+                convert(parser, writer)
 
 
 def convert(parser, writer):
@@ -377,8 +808,27 @@ def convert(parser, writer):
         if parser.command_type == CommandType.C_ARITHMETIC:
             writer.write_arithmetic(parser.arg1)
 
+        # TODO: Refactor
         if parser.command_type == CommandType.C_PUSH or parser.command_type == CommandType.C_POP:
             writer.write_push_pop(parser.command_type, parser.arg1, int(parser.arg2))
+
+        if parser.command_type == CommandType.C_LABEL:
+            writer.write_label(parser.arg1)
+
+        if parser.command_type == CommandType.C_GOTO:
+            writer.write_goto(parser.arg1)
+
+        if parser.command_type == CommandType.C_IF:
+            writer.write_if(parser.arg1)
+
+        if parser.command_type == CommandType.C_FUNCTION:
+            writer.write_function(parser.arg1, parser.arg2)
+
+        if parser.command_type == CommandType.C_RETURN:
+            writer.write_return()
+
+        if parser.command_type == CommandType.C_CALL:
+            writer.write_call(parser.arg1, parser.arg2)
 
 
 def main():
@@ -386,9 +836,8 @@ def main():
         print("Usage: vm_translator.py source")
         sys.exit(1)
 
-    # TODO: ディレクトリのときはファイルを列挙して処理する
-    vm_file = sys.argv[1]
-    process(vm_file)
+    path = Path(sys.argv[1])
+    process(path)
 
 
 if __name__ == '__main__':
