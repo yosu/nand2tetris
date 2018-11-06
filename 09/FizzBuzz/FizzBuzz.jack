@@ -1,0 +1,42 @@
+class FizzBuzz {
+    field int max;
+
+    constructor FizzBuzz new(int n) {
+        let max = n;
+        return this;
+    }
+
+    function boolean mod(int numerator, int denominator) {
+        var int d, m;
+        let d = numerator / denominator;
+        let m = numerator - (d * denominator);
+
+        return m = 0;
+    }
+
+    method void run() {
+        var int i;
+        let i = 1;
+        while (i < max) {
+            if (FizzBuzz.mod(i, 3)) {
+                do Output.printInt(i);
+                do Output.printString(": Fizz");
+
+                if (FizzBuzz.mod(i, 5)) {
+                    do Output.printString("Buzz");
+                }
+                do Output.println();
+            }
+            else {
+                if (FizzBuzz.mod(i, 5)) {
+                    do Output.printInt(i);
+                    do Output.printString(": Buzz");
+                    do Output.println();
+                }
+            }
+
+            let i = i + 1;
+        }
+        return;
+    }
+}

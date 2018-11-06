@@ -1,0 +1,8 @@
+class Main {
+    function void main() {
+        var FizzBuzz fb;
+        let fb = FizzBuzz.new(20);
+        do fb.run();
+        return;
+    }
+}
