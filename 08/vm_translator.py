@@ -291,15 +291,7 @@ class CodeWriter:
         return f"Return.{self.file_name}.{self.return_count}"
 
     def write_init(self):
-        hack = f'''
-        // ------------------------------------------------------------------------------
-        //init
-        // ------------------------------------------------------------------------------
-        # Call Sys.init
-        @{self._function_label('Sys.init')}
-        0;JMP
-        '''
-        self._write_text(hack)
+        self.write_call('Sys.init', 0)
 
     def write_label(self, label):
         self._validate_label(label)
@@ -610,6 +602,10 @@ class CodeWriter:
             self._write_push_constant(index)
             return
 
+        if segment == 'static':
+            self._write_push_static(index)
+            return
+
         self._write_push(segment, index)
 
     def _write_push(self, segment, index):
@@ -662,6 +658,22 @@ class CodeWriter:
         '''
         self._write_text(hack)
 
+    def _write_push_static(self, index):
+        hack = f'''
+        # get static label address
+        @{self.file_name}.{index}
+        # get value from static address to D
+        D=M
+        # push D to stack
+        @SP
+        A=M
+        M=D
+        # increment stack pointer
+        @SP
+        M=M+1
+        '''
+
+        self._write_text(hack)
 
     def write_pop(self, segment, index):
         self._write_text(f'''
@@ -669,6 +681,10 @@ class CodeWriter:
             // pop {segment} {index}
             // ------------------------------------------------------------------------------
         ''')
+        if segment == 'static':
+            self._write_pop_static(index)
+            return
+
         self._write_pop(segment, index)
 
     def _write_pop(self, segment, index):
@@ -699,6 +715,30 @@ class CodeWriter:
         @R13
         # D to local[index]
         A=M
+        M=D
+        '''
+        self._write_text(hack)
+
+    def _write_pop_static(self, index):
+        hack = f'''
+        # allocate static address
+        ({self.file_name}.{index})
+        # get static address
+        @{self.file_name}.{index}
+        D=A
+        # store to R13
+        @R13
+        M=D
+        # decrement stack pointer
+        @SP
+        M=M-1
+        # pop stack to D
+        A=M
+        D=M
+        # get static address
+        @R13
+        A=M
+        # store D to static address
         M=D
         '''
         self._write_text(hack)
