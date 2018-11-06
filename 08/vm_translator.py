@@ -291,6 +291,16 @@ class CodeWriter:
         return f"Return.{self.file_name}.{self.return_count}"
 
     def write_init(self):
+        hack = f'''
+        // ------------------------------------------------------------------------------
+        //init
+        // ------------------------------------------------------------------------------
+        @256
+        D=A
+        @SP
+        M=D
+        '''
+        self._write_text(hack)
         self.write_call('Sys.init', 0)
 
     def write_label(self, label):
